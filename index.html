@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>18x17 Grid Selection</title>
+
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #0f1115;
+      color: white;
+      font-family: sans-serif;
+      user-select: none;
+    }
+
+    .toolbar {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 10000;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    button,
+    label {
+      height: 40px;
+      padding: 0 14px;
+      border-radius: 10px;
+      border: 1px solid #555;
+      background: #1f2430;
+      color: white;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+    }
+
+    button.active {
+      background: #284d8f;
+      border-color: #7db2ff;
+    }
+
+    input[type="file"] {
+      display: none;
+    }
+
+    .container {
+      width: 100vw;
+      height: 100vh;
+      padding-top: 70px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .grid {
+      position: relative;
+      display: grid;
+
+      grid-template-columns: repeat(18, 100px);
+      grid-template-rows: repeat(17, 100px);
+
+      width: 1800px;
+      height: 1700px;
+
+      background-color: #333;
+      background-size: 100% 100%;
+      background-position: center;
+      background-repeat: no-repeat;
+
+      transform-origin: center center;
+    }
+
+    .tile {
+      width: 100px;
+      height: 100px;
+
+      background: transparent;
+      border: 1px solid rgba(255,255,255,0.18);
+
+      display: flex;
+      align-items: center;
+      justify-content: center;
+
+      font-size: 12px;
+      color: rgba(255,255,255,0.7);
+    }
+
+    .tile.selected {
+      background: rgba(40, 77, 143, 0.45);
+      border-color: #7db2ff;
+    }
+
+    .selection-shape {
+      position: fixed;
+      border: 2px solid #7db2ff;
+      background: rgba(125,178,255,0.15);
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    .selection-shape.circle,
+    .selection-shape.ellipse {
+      border-radius: 9999px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="toolbar">
+    <button data-mode="rect" class="active">長方形</button>
+    <button data-mode="circle">円</button>
+    <button data-mode="ellipse">楕円</button>
+
+    <label>
+      画像アップロード
+      <input id="imageInput" type="file" accept="image/*" />
+    </label>
+  </div>
+
+  <div class="container">
+    <div class="grid" id="grid"></div>
+  </div>
+
+  <script>
+    const COLS = 18
+    const ROWS = 17
+    const TILE_SIZE = 100
+    const TOTAL = COLS * ROWS
+
+    const grid = document.getElementById("grid")
+    const imageInput = document.getElementById("imageInput")
+    const buttons = document.querySelectorAll("button[data-mode]")
+
+    let mode = "rect"
+
+    buttons.forEach(button => {
+      button.addEventListener("click", () => {
+        mode = button.dataset.mode
+
+        buttons.forEach(b => b.classList.remove("active"))
+        button.classList.add("active")
+      })
+    })
+
+    for (let i = 0; i < TOTAL; i++) {
+      const tile = document.createElement("div")
+      tile.className = "tile"
+      tile.dataset.index = i
+      tile.textContent = i + 1
+      grid.appendChild(tile)
+    }
+
+    const tiles = [...document.querySelectorAll(".tile")]
+
+    imageInput.addEventListener("change", e => {
+      const file = e.target.files?.[0]
+      if (!file) return
+
+      const reader = new FileReader()
+
+      reader.onload = () => {
+        grid.style.backgroundImage = `url("${reader.result}")`
+      }
+
+      reader.readAsDataURL(file)
+    })
+
+    function layoutGrid() {
+      const padding = 40
+      const toolbarHeight = 70
+
+      const availableWidth = window.innerWidth - padding
+      const availableHeight = window.innerHeight - toolbarHeight - padding
+
+      const contentWidth = COLS * TILE_SIZE
+      const contentHeight = ROWS * TILE_SIZE
+
+      const scaleX = availableWidth / contentWidth
+      const scaleY = availableHeight / contentHeight
+
+      const scale = Math.min(scaleX, scaleY, 1)
+
+      grid.style.transform = `scale(${scale})`
+    }
+
+    layoutGrid()
+    window.addEventListener("resize", layoutGrid)
+
+    let isSelecting = false
+    let startX = 0
+    let startY = 0
+    let selectionShape = null
+
+    function createSelectionShape() {
+      selectionShape = document.createElement("div")
+      selectionShape.className = `selection-shape ${mode}`
+      document.body.appendChild(selectionShape)
+    }
+
+    function getDragBox(x, y) {
+      const left = Math.min(startX, x)
+      const top = Math.min(startY, y)
+      const width = Math.abs(x - startX)
+      const height = Math.abs(y - startY)
+
+      return {
+        left,
+        top,
+        width,
+        height,
+        right: left + width,
+        bottom: top + height
+      }
+    }
+
+    function updateSelectionShape(x, y) {
+      const box = getDragBox(x, y)
+
+      selectionShape.style.left = `${box.left}px`
+      selectionShape.style.top = `${box.top}px`
+      selectionShape.style.width = `${box.width}px`
+      selectionShape.style.height = `${box.height}px`
+
+      if (mode === "circle") {
+        const size = Math.max(box.width, box.height)
+
+        selectionShape.style.width = `${size}px`
+        selectionShape.style.height = `${size}px`
+
+        const left = x < startX ? startX - size : startX
+        const top = y < startY ? startY - size : startY
+
+        selectionShape.style.left = `${left}px`
+        selectionShape.style.top = `${top}px`
+
+        return {
+          type: "circle",
+          cx: left + size / 2,
+          cy: top + size / 2,
+          r: size / 2
+        }
+      }
+
+      if (mode === "ellipse") {
+        return {
+          type: "ellipse",
+          cx: box.left + box.width / 2,
+          cy: box.top + box.height / 2,
+          rx: box.width / 2,
+          ry: box.height / 2
+        }
+      }
+
+      return {
+        type: "rect",
+        ...box
+      }
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value))
+    }
+
+    function rectIntersects(a, b) {
+      return !(
+        a.right < b.left ||
+        a.left > b.right ||
+        a.bottom < b.top ||
+        a.top > b.bottom
+      )
+    }
+
+    function circleIntersectsRect(circle, rect) {
+      const nearestX = clamp(circle.cx, rect.left, rect.right)
+      const nearestY = clamp(circle.cy, rect.top, rect.bottom)
+
+      const dx = circle.cx - nearestX
+      const dy = circle.cy - nearestY
+
+      return dx * dx + dy * dy <= circle.r * circle.r
+    }
+
+    function ellipseIntersectsRect(ellipse, rect) {
+      if (ellipse.rx === 0 || ellipse.ry === 0) return false
+
+      const nearestX = clamp(ellipse.cx, rect.left, rect.right)
+      const nearestY = clamp(ellipse.cy, rect.top, rect.bottom)
+
+      const dx = (nearestX - ellipse.cx) / ellipse.rx
+      const dy = (nearestY - ellipse.cy) / ellipse.ry
+
+      return dx * dx + dy * dy <= 1
+    }
+
+    function isHit(shape, rect) {
+      if (shape.type === "rect") {
+        return rectIntersects(shape, rect)
+      }
+
+      if (shape.type === "circle") {
+        return circleIntersectsRect(shape, rect)
+      }
+
+      if (shape.type === "ellipse") {
+        return ellipseIntersectsRect(shape, rect)
+      }
+
+      return false
+    }
+
+    document.addEventListener("mousedown", e => {
+      if (e.button !== 0) return
+      if (e.target.closest(".toolbar")) return
+
+      isSelecting = true
+      startX = e.clientX
+      startY = e.clientY
+
+      tiles.forEach(tile => tile.classList.remove("selected"))
+
+      createSelectionShape()
+    })
+
+    document.addEventListener("mousemove", e => {
+      if (!isSelecting) return
+
+      const shape = updateSelectionShape(e.clientX, e.clientY)
+
+      tiles.forEach(tile => {
+        const rect = tile.getBoundingClientRect()
+        tile.classList.toggle("selected", isHit(shape, rect))
+      })
+    })
+
+    document.addEventListener("mouseup", () => {
+      if (!isSelecting) return
+
+      isSelecting = false
+      selectionShape.remove()
+      selectionShape = null
+    })
+  </script>
+</body>
+</html>
